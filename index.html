@@ -69,6 +69,16 @@
       #status.success {
         color: #1b7a3a;
       }
+
+      .consent-label {
+        display: block;
+        margin: 8px 0;
+      }
+
+      button:disabled {
+        background: #9ba8b9;
+        cursor: not-allowed;
+      }
     </style>
   </head>
   <body>
@@ -77,6 +87,18 @@
       <div class="panel">
         <p>参加者ID：<strong id="participantId"></strong></p>
         <p>教授ID：<strong id="professorId"></strong></p>
+
+        <p>
+          この写真は、卒業研究において対象教授との対面交流が行われたことを確認するために使用します。研究目的以外には使用せず、一般公開は行いません。
+        </p>
+        <label class="consent-label">
+          <input type="checkbox" id="participantConsent" />
+          参加者本人が研究利用に同意している
+        </label>
+        <label class="consent-label">
+          <input type="checkbox" id="professorConsent" />
+          教授本人が研究利用に同意している
+        </label>
 
         <div class="actions">
           <button type="button" id="startButton">カメラを起動</button>
@@ -96,13 +118,23 @@
           <button type="button" id="captureButton" hidden>撮影する</button>
           <button type="button" id="retakeButton" hidden>撮り直す</button>
           <button type="button" id="useButton" hidden>
-            この写真を使用する
+            この写真で記録する
           </button>
         </div>
 
         <p id="status" aria-live="polite"></p>
       </div>
     </main>
+
+    <form id="uploadForm" method="POST" hidden>
+      <input type="hidden" name="participantId" />
+      <input type="hidden" name="professorId" />
+      <input type="hidden" name="token" />
+      <input type="hidden" name="imageData" />
+      <input type="hidden" name="participantConsent" />
+      <input type="hidden" name="professorConsent" />
+      <input type="hidden" name="capturedAt" />
+    </form>
 
     <script>
       (() => {
@@ -115,6 +147,14 @@
         const retakeButton = el("retakeButton");
         const useButton = el("useButton");
         const status = el("status");
+        // GAS Webアプリ(/exec)のURLに置き換える。秘密情報ではない。
+        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyPg2mg2toEhQQXw3ZmHYr2PkpHMEGCzYMcJippnDxyln0yO3uwdYdKmx-XVFByI93X/exec";
+        const participantConsent = el("participantConsent");
+        const professorConsent = el("professorConsent");
+        const uploadForm = el("uploadForm");
+        const token = params.get("token") || "";
+        let capturedAt = "";
+        let submitted = false;
         let stream = null;
 
         el("participantId").textContent =
@@ -181,6 +221,7 @@
           canvas.width = video.videoWidth;
           canvas.height = video.videoHeight;
           canvas.getContext("2d").drawImage(video, 0, 0);
+          capturedAt = new Date().toISOString();
           stopCamera();
           video.hidden = true;
           canvas.hidden = false;
@@ -190,10 +231,54 @@
           setStatus("");
         });
 
+        function updateUseButton() {
+          useButton.disabled =
+            submitted ||
+            !participantConsent.checked ||
+            !professorConsent.checked;
+        }
+        participantConsent.addEventListener("change", updateUseButton);
+        professorConsent.addEventListener("change", updateUseButton);
+        updateUseButton();
+
         useButton.addEventListener("click", () => {
-          useButton.hidden = true;
-          retakeButton.hidden = true;
-          setStatus("撮影テスト成功", "success");
+          if (submitted) return;
+          if (!participantConsent.checked || !professorConsent.checked) {
+            setStatus("参加者・教授の両方の同意が必要です。", "error");
+            return;
+          }
+          const participantId = params.get("participantId") || "";
+          const professorId = params.get("professorId") || "";
+          if (
+            !participantId ||
+            !professorId ||
+            !token ||
+            !capturedAt ||
+            GAS_WEB_APP_URL === "YOUR_GAS_WEB_APP_EXEC_URL"
+          ) {
+            setStatus("送信に必要な情報が不足しています。", "error");
+            return;
+          }
+
+          submitted = true;
+          updateUseButton();
+          retakeButton.disabled = true;
+          setStatus("送信しています…");
+
+          const values = {
+            participantId,
+            professorId,
+            token,
+            imageData: canvas.toDataURL("image/jpeg", 0.85),
+            participantConsent: "true",
+            professorConsent: "true",
+            capturedAt,
+          };
+          uploadForm.action = GAS_WEB_APP_URL;
+          Object.keys(values).forEach((name) => {
+            uploadForm.elements[name].value = values[name];
+          });
+          uploadForm.submit();
         });
 
         window.addEventListener("pagehide", stopCamera);
