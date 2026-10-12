@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>カメラ動作確認</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 16px;
+        color: #24324a;
+        background: #eef3fa;
+        font-family: sans-serif;
+      }
+
+      main {
+        width: min(100%, 640px);
+        margin: 0 auto;
+      }
+
+      .panel {
+        padding: 16px;
+        border-radius: 12px;
+        background: white;
+        box-shadow: 0 4px 12px rgba(24, 36, 64, 0.2);
+      }
+
+      .media {
+        display: block;
+        width: 100%;
+        margin-top: 12px;
+        border-radius: 8px;
+        background: #000;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      button {
+        padding: 10px 20px;
+        border: 0;
+        border-radius: 8px;
+        color: white;
+        background: #315b8d;
+        font-size: 16px;
+        font-weight: bold;
+        cursor: pointer;
+      }
+
+      #status {
+        min-height: 1.5em;
+        margin: 12px 0 0;
+        font-weight: bold;
+      }
+
+      #status.error {
+        color: #b3261e;
+      }
+
+      #status.success {
+        color: #1b7a3a;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>カメラ動作確認</h1>
+      <div class="panel">
+        <p>参加者ID：<strong id="participantId"></strong></p>
+        <p>教授ID：<strong id="professorId"></strong></p>
+
+        <div class="actions">
+          <button type="button" id="startButton">カメラを起動</button>
+        </div>
+
+        <video
+          id="video"
+          class="media"
+          autoplay
+          playsinline
+          muted
+          hidden
+        ></video>
+        <canvas id="canvas" class="media" hidden></canvas>
+
+        <div class="actions">
+          <button type="button" id="captureButton" hidden>撮影する</button>
+          <button type="button" id="retakeButton" hidden>撮り直す</button>
+          <button type="button" id="useButton" hidden>
+            この写真を使用する
+          </button>
+        </div>
+
+        <p id="status" aria-live="polite"></p>
+      </div>
+    </main>
+
+    <script>
+      (() => {
+        const params = new URLSearchParams(window.location.search);
+        const el = (id) => document.getElementById(id);
+        const video = el("video");
+        const canvas = el("canvas");
+        const startButton = el("startButton");
+        const captureButton = el("captureButton");
+        const retakeButton = el("retakeButton");
+        const useButton = el("useButton");
+        const status = el("status");
+        let stream = null;
+
+        el("participantId").textContent =
+          params.get("participantId") || "(未指定)";
+        el("professorId").textContent = params.get("professorId") || "(未指定)";
+
+        function setStatus(text, kind) {
+          status.textContent = text;
+          status.className = kind || "";
+        }
+
+        function stopCamera() {
+          if (stream) {
+            stream.getTracks().forEach((track) => track.stop());
+            stream = null;
+          }
+          video.srcObject = null;
+        }
+
+        async function startCamera() {
+          stopCamera();
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            const error = new Error("getUserMedia is not available");
+            error.name = "NotSupportedError";
+            throw error;
+          }
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+          video.srcObject = stream;
+        }
+
+        function showLive() {
+          video.hidden = false;
+          canvas.hidden = true;
+          startButton.hidden = true;
+          captureButton.hidden = false;
+          retakeButton.hidden = true;
+          useButton.hidden = true;
+        }
+
+        async function handleStart() {
+          setStatus("カメラの許可を確認しています…");
+          try {
+            await startCamera();
+            showLive();
+            setStatus("");
+          } catch (error) {
+            stopCamera();
+            startButton.hidden = false;
+            setStatus(`カメラを使用できませんでした（${error.name}）`, "error");
+          }
+        }
+
+        startButton.addEventListener("click", handleStart);
+        retakeButton.addEventListener("click", handleStart);
+
+        captureButton.addEventListener("click", () => {
+          if (!stream || !video.videoWidth) {
+            setStatus("カメラ映像の準備ができていません。", "error");
+            return;
+          }
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          canvas.getContext("2d").drawImage(video, 0, 0);
+          stopCamera();
+          video.hidden = true;
+          canvas.hidden = false;
+          captureButton.hidden = true;
+          retakeButton.hidden = false;
+          useButton.hidden = false;
+          setStatus("");
+        });
+
+        useButton.addEventListener("click", () => {
+          useButton.hidden = true;
+          retakeButton.hidden = true;
+          setStatus("撮影テスト成功", "success");
+        });
+
+        window.addEventListener("pagehide", stopCamera);
+      })();
+    </script>
+  </body>
+</html>
